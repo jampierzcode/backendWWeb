@@ -19,12 +19,24 @@ const io = socketIo(server, {
 app.use(cors());
 app.use(express.json());
 
-// Función para inicializar el cliente de WhatsApp
-let client;
+const clients = {}; // Almacenar los clientes de WhatsApp por clientId
 
 // Evento de nueva conexión del cliente frontend
 io.on("connection", (socket) => {
   console.log("Cliente conectado desde el frontend");
+  // Reconectar si hay un clientId guardado en el frontend
+  socket.on("reconnect-client", (clientId) => {
+    if (clients[clientId]) {
+      console.log(`Reutilizando cliente existente para ${clientId}`);
+      socket.emit("ready", { clientId, message: "Cliente ya está listo" });
+    } else {
+      console.log(
+        `No se encontró cliente para ${clientId}, generando nuevo QR.`
+      );
+      // Aquí puedes generar un nuevo QR si es necesario o manejar el error
+      socket.emit("disconnected", { clientId });
+    }
+  });
 
   // Emitimos un evento para informar que el cliente Socket.io está conectado
   socket.emit("connected", "Conectado al backend");
@@ -32,10 +44,19 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     console.log("Cliente frontend desconectado");
   });
-  socket.on("request-qr", () => {
+  socket.on("request-qr", (clientId) => {
     console.log("Solicitud de nuevo qr");
-    // Inicializar el cliente
-    client = new Client();
+    console.log(clientId);
+    // Si ya hay un cliente para este clientId, lo desconectamos
+    if (clients[clientId]) {
+      // clients[clientId].destroy(); // Cierra el cliente existente
+    }
+
+    // Inicializar el cliente de WhatsApp para este clientId
+    const client = new Client({
+      authStrategy: new LocalAuth({ clientId }), // Usar LocalAuth con clientId
+    });
+    clients[clientId] = client; // Guardar cliente en el objeto clients
 
     client.on("qr", (qr) => {
       // Emitir el QR al cliente
@@ -44,29 +65,30 @@ io.on("connection", (socket) => {
           console.error("Error generando el código QR", err);
           return;
         }
-        socket.emit("qr", url); // Emitimos el QR al frontend en tiempo real
+        socket.emit("qr", { clientId, url }); // Emitimos el QR con el clientId
       });
     });
 
     client.on("ready", () => {
-      console.log("Cliente está listo!");
-      socket.emit("ready", "Cliente está listo");
-    });
-    // Evento para detectar desconexión
-    client.on("auth_failure", () => {
-      console.log("Error de autenticación. Generando nuevo QR...");
-      socket.emit("disconnected", "Desconectado. Generando nuevo QR...");
+      console.log(`Cliente ${clientId} está listo!`);
+      socket.emit("ready", { clientId, message: "Cliente está listo" });
     });
 
-    client.on("disconnected", (reason) => {
-      console.log("Cliente desconectado:", reason);
-      socket.emit("disconnected", "Desconectado. Generando nuevo QR...");
+    client.on("disconnected", () => {
+      console.log(`Cliente ${clientId} se ha desconectado.`);
+      socket.emit("disconnected", { clientId });
+      delete clients[clientId]; // Eliminar cliente del objeto clients
+    });
+    client.on("auth_failure", () => {
+      console.log(`Error de autenticación. Generando nuevo QR...`);
+      socket.emit("disconnected", { clientId });
+      delete clients[clientId]; // Eliminar cliente del objeto clients
     });
 
     // Asegúrate de que la función donde usas 'await' sea async
     client.on("message", async (message) => {
       if (message.body.toLowerCase() === "fotos") {
-        const imagePath = path.join(__dirname, "video.mp4");
+        const imagePath = path.join(__dirname, "imagenes/1.jpg");
 
         // Carga la imagen usando MessageMedia
         const media = MessageMedia.fromFilePath(imagePath);
