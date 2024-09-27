@@ -1,5 +1,5 @@
-const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
 require("dotenv").config(); // Cargar las variables de entorno desde .env
+const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
 // Puedes acceder a la variable API_URL así:
 const apiUrl = process.env.API_URL;
 // Obtener el puerto desde las variables de entorno o usar 3001 como valor por defecto
