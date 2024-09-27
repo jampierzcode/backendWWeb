@@ -2,3 +2,4 @@
 /imagenes
 /.wwebjs_auth
 /.wwebjs_cache
+.env

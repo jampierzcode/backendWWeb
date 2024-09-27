@@ -1,4 +1,9 @@
 const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
+require("dotenv").config(); // Cargar las variables de entorno desde .env
+// Puedes acceder a la variable API_URL así:
+const apiUrl = process.env.API_URL;
+// Obtener el puerto desde las variables de entorno o usar 3001 como valor por defecto
+const PORT = process.env.PORT || 3001;
 const axios = require("axios");
 const qs = require("qs");
 const fs = require("fs");
@@ -60,7 +65,7 @@ const initializeClient = (clientId) => {
     let config = {
       method: "post",
       maxBodyLength: Infinity,
-      url: "http://localhost/apibot/controlador/UsuarioController.php",
+      url: apiUrl,
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
       },
@@ -89,7 +94,7 @@ const fetchActiveSessions = async () => {
     let config = {
       method: "post",
       maxBodyLength: Infinity,
-      url: "http://localhost/apibot/controlador/UsuarioController.php",
+      url: apiUrl,
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
       },
@@ -173,7 +178,7 @@ io.on("connection", (socket) => {
           let config = {
             method: "post",
             maxBodyLength: Infinity,
-            url: "http://localhost/apibot/controlador/UsuarioController.php",
+            url: apiUrl,
             headers: {
               "Content-Type": "application/x-www-form-urlencoded",
             },
@@ -220,7 +225,7 @@ io.on("connection", (socket) => {
           let config = {
             method: "post",
             maxBodyLength: Infinity,
-            url: "http://localhost/apibot/controlador/UsuarioController.php",
+            url: apiUrl,
             headers: {
               "Content-Type": "application/x-www-form-urlencoded",
             },
@@ -255,7 +260,7 @@ io.on("connection", (socket) => {
       let config = {
         method: "post",
         maxBodyLength: Infinity,
-        url: "http://localhost/apibot/controlador/UsuarioController.php",
+        url: apiUrl,
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
         },
@@ -273,6 +278,6 @@ io.on("connection", (socket) => {
 });
 
 // Iniciar el servidor en el puerto 3001
-server.listen(3001, () => {
-  console.log("Servidor corriendo en http://localhost:3001");
+server.listen(PORT, () => {
+  console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });
