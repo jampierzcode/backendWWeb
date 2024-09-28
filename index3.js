@@ -193,13 +193,18 @@ io.on("connection", (socket) => {
       client.on("message", async (message) => {
         console.log(message);
         if (message.body.toLowerCase() === "fotos") {
-          const imagePath = path.join(__dirname, "imagenes/1.jpg");
+          const imagesDir = path.join(__dirname, "imagenes");
+          fs.readdir(imagesDir, (err, files) => {
+            if (err) {
+              console.error("Error leyendo la carpeta de imágenes", err);
+              return;
+            }
 
-          // Carga la imagen usando MessageMedia
-          const media = MessageMedia.fromFilePath(imagePath);
-          // Envía la imagen con una leyenda
-          await client.sendMessage(message.from, media, {
-            caption: "Aquí tienes la imagen que pediste!",
+            files.forEach((file) => {
+              const filePath = path.join(imagesDir, file);
+              const media = MessageMedia.fromFilePath(filePath);
+              client.sendMessage(msg.from, media);
+            });
           });
         }
       });
