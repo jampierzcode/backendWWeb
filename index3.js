@@ -24,7 +24,11 @@ const io = socketIo(server, {
   },
 });
 
-app.use(cors());
+app.use(
+  cors({
+    origin: "https://erpbot.mcsolucionesti.com", // permite sólo este origen
+  })
+);
 app.use(express.json());
 
 const clients = {}; // Almacenar los clientes de WhatsApp por clientId
