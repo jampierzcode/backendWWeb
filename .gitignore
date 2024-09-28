@@ -1,5 +1,5 @@
 /node_modules
-/imagenes
+
 /.wwebjs_auth
 /.wwebjs_cache
 .env
