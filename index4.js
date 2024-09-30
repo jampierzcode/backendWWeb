@@ -1,19 +1,16 @@
 require("dotenv").config(); // Cargar las variables de entorno desde .env
-const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
-// Puedes acceder a la variable API_URL así:
-const apiUrl = process.env.API_URL;
-// Obtener el puerto desde las variables de entorno o usar 3001 como valor por defecto
-const PORT = process.env.PORT || 3001;
-const axios = require("axios");
-const qs = require("qs");
-const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
-const path = require("path");
 const http = require("http");
 const socketIo = require("socket.io");
+const axios = require("axios");
+const qs = require("qs");
+const path = require("path");
+const fs = require("fs");
 const qrcode = require("qrcode");
 const dayjs = require("dayjs");
+const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
+const jwt = require("jsonwebtoken"); // Importar jsonwebtoken
 
 const app = express();
 const server = http.createServer(app);
@@ -24,18 +21,24 @@ const io = socketIo(server, {
   },
 });
 
+// Middleware
 app.use(
   cors({
-    origin: ["https://erpbot.mcsolucionesti.com", "http://localhost:3000"], // permite sólo este origen
+    origin: ["https://erpbot.mcsolucionesti.com", "http://localhost:3000"], // permite solo este origen
   })
 );
 app.use(express.json());
 
-const clients = {}; // Almacenar los clientes de WhatsApp por clientId
+// Configuración del puerto y la API
+const PORT = process.env.PORT || 3001;
+const apiUrl = process.env.API_URL;
+
+// Almacenar los clientes de WhatsApp por clientId
+const clients = {};
 
 // Función para inicializar un cliente de WhatsApp
 const initializeClient = (clientId) => {
-  console.log(`${clientId} -cliente de base de datos`);
+  console.log(`${clientId} - cliente de base de datos`);
   const client = new Client({
     authStrategy: new LocalAuth({ clientId }), // Usar LocalAuth con clientId
   });
@@ -45,49 +48,48 @@ const initializeClient = (clientId) => {
   client.initialize();
 
   client.on("ready", async () => {
-    console.log(`Cliente ${clientId} está listos.`);
+    console.log(`Cliente ${clientId} está listo.`);
   });
-  // Asegúrate de que la función donde usas 'await' sea async
+
   client.on("message", async (message) => {
     console.log(message);
     if (message.body.toLowerCase() === "fotos") {
       const imagePath = path.join(__dirname, "imagenes/1.jpg");
-
-      // Carga la imagen usando MessageMedia
       const media = MessageMedia.fromFilePath(imagePath);
-      // Envía la imagen con una leyenda
       await client.sendMessage(message.from, media, {
         caption: "Aquí tienes la imagen que pediste!",
       });
     }
   });
+
   client.on("disconnected", async () => {
     console.log(`Cliente ${clientId} desconectado.`);
-    let data = qs.stringify({
-      funcion: "desconectar_session",
-      cliente_id: clientId,
-    });
-    let config = {
-      method: "post",
-      maxBodyLength: Infinity,
-      url: apiUrl,
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      data: data,
-    };
-    const response = await axios.request(config);
-    console.log(response.data);
-    clients[clientId].destroy();
-    delete clients[clientId]; // Eliminar cliente del objeto clients
-  });
-  client.on("auth_failure", (message) => {
-    console.error("Autenticación fallida:", message);
-    // Realiza las acciones necesarias, como reiniciar el proceso de autenticación o destruir la sesión.
-    // Si deseas destruir el cliente después de la autenticación fallida
+    await handleClientDisconnection(clientId);
   });
 
-  // client.initialize();
+  client.on("auth_failure", (message) => {
+    console.error("Autenticación fallida:", message);
+  });
+};
+
+// Manejar la desconexión del cliente
+const handleClientDisconnection = async (clientId) => {
+  let data = qs.stringify({
+    funcion: "desconectar_session",
+    cliente_id: clientId,
+  });
+  let config = {
+    method: "post",
+    maxBodyLength: Infinity,
+    url: apiUrl,
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    data: data,
+  };
+  const response = await axios.request(config);
+  console.log(response.data);
+  delete clients[clientId]; // Eliminar cliente del objeto clients
 };
 
 // Función para obtener sesiones activas desde PHP
@@ -106,17 +108,14 @@ const fetchActiveSessions = async () => {
       data: data,
     };
     const response = await axios.request(config);
-
     const sessions = response.data.data;
-    console.log(sessions);
 
     if (sessions.length !== 0) {
       sessions.forEach((session) => {
-        console.log(session.clientid);
         initializeClient(session.clientid); // Inicializar cada cliente activo
       });
     } else {
-      console.log("no hay sessiones activas");
+      console.log("No hay sesiones activas");
     }
   } catch (error) {
     console.error("Error obteniendo sesiones activas:", error);
@@ -126,10 +125,82 @@ const fetchActiveSessions = async () => {
 // Al iniciar el servidor, buscar sesiones activas en la base de datos
 fetchActiveSessions();
 
+// Ruta de login
+app.post("/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    // Consulta a la base de datos (ejemplo usando MySQL)
+    const user = await queryDatabaseForUser(email, password);
+
+    if (!user) {
+      return res.status(401).json({
+        status: "error",
+        msg: "Credenciales inválidas",
+        token: "",
+        user: null,
+      });
+    }
+
+    // Generar token
+    const token = jwt.sign(
+      { id: user.id, email: user.email },
+      process.env.JWT_SECRET,
+      { expiresIn: "1h" } // El token expirará en 1 hora
+    );
+
+    res.json({
+      status: "success",
+      msg: "Inicio de sesión exitoso",
+      token,
+      user: {
+        nombres: user.nombres,
+        email: user.email,
+        celular: user.celular,
+      },
+    });
+  } catch (error) {
+    console.error("Error en el login:", error);
+    res.status(500).json({
+      status: "error",
+      msg: "Error interno del servidor",
+      token: "",
+      user: null,
+    });
+  }
+});
+
+// Función para consultar la base de datos
+const queryDatabaseForUser = async (email, password) => {
+  try {
+    let data = qs.stringify({
+      funcion: "login",
+      email,
+      password,
+    });
+    let config = {
+      method: "post",
+      maxBodyLength: Infinity,
+      url: apiUrl,
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      data: data,
+    };
+    const response = await axios.request(config);
+    console.log(response.data);
+    return response.data.data;
+  } catch (error) {
+    console.error("Ocurrio un error:", error);
+    return null;
+  }
+};
+
+// Socket.IO
 io.on("connection", (socket) => {
   console.log("Cliente conectado desde el frontend");
-  // Emitimos un evento para informar que el cliente Socket.io está conectado
   socket.emit("connected", "Conectado al backend");
+
   socket.on("reconnect-client", (clientId) => {
     if (clients[clientId]) {
       console.log(`Reutilizando cliente existente para ${clientId}`);
