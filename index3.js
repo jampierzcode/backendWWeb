@@ -196,18 +196,26 @@ io.on("connection", (socket) => {
       // Asegúrate de que la función donde usas 'await' sea async
       client.on("message", async (message) => {
         console.log(message);
-        if (message.body.toLowerCase() === "fotos") {
+
+        // Crear una expresión regular para varias palabras relacionadas con fotos
+        const fotosKeywords =
+          /(fotos|foto|fotografias|fotitos|fotito|imagenes de referencia|imagenes|images|pics)/i;
+
+        // Comprobar si el mensaje contiene alguna de las palabras clave
+        if (fotosKeywords.test(message.body)) {
           const imagesDir = path.join(__dirname, "imagenes");
+
           fs.readdir(imagesDir, (err, files) => {
             if (err) {
               console.error("Error leyendo la carpeta de imágenes", err);
               return;
             }
 
+            // Enviar cada archivo de imagen en la carpeta
             files.forEach((file) => {
               const filePath = path.join(imagesDir, file);
               const media = MessageMedia.fromFilePath(filePath);
-              client.sendMessage(msg.from, media);
+              client.sendMessage(message.from, media);
             });
           });
         }
