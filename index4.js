@@ -150,8 +150,8 @@ app.post("/login", async (req, res) => {
     );
 
     res.json({
-      status: "success",
-      msg: "Inicio de sesión exitoso",
+      status: 200,
+      msg: "login success",
       token,
       user: {
         nombres: user.nombres,
@@ -162,11 +162,31 @@ app.post("/login", async (req, res) => {
   } catch (error) {
     console.error("Error en el login:", error);
     res.status(500).json({
-      status: "error",
-      msg: "Error interno del servidor",
-      token: "",
-      user: null,
+      status: 500,
+      msg: `Error interno del servidor ${error}`,
     });
+  }
+});
+app.post("/verify-token", (req, res) => {
+  const { token } = req.body;
+
+  if (!token) {
+    return res
+      .status(401)
+      .json({ valid: false, message: "Token no proporcionado" });
+  }
+
+  try {
+    // Verificar el token utilizando JWT
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log("decoded");
+    console.log(decoded);
+    return res.json({ valid: true });
+  } catch (err) {
+    console.error("Token inválido o expirado:", err);
+    return res
+      .status(401)
+      .json({ valid: false, message: "Token inválido o expirado" });
   }
 });
 
