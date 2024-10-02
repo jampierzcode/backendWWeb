@@ -14,9 +14,10 @@ const jwt = require("jsonwebtoken"); // Importar jsonwebtoken
 
 const app = express();
 const server = http.createServer(app);
+const dominioUrl = process.env.DOMINIO;
 const io = socketIo(server, {
   cors: {
-    origin: "http://localhost:3000",
+    origin: dominioUrl,
     methods: ["GET", "POST"],
   },
 });
@@ -24,7 +25,7 @@ const io = socketIo(server, {
 // Middleware
 app.use(
   cors({
-    origin: ["https://erpbot.mcsolucionesti.com", "http://localhost:3000"], // permite solo este origen
+    origin: dominioUrl, // permite solo este origen
   })
 );
 app.use(express.json());
@@ -52,7 +53,6 @@ const initializeClient = (clientId) => {
   });
 
   client.on("message", async (message) => {
-    console.log(message);
     if (message.body.toLowerCase() === "fotos") {
       const imagePath = path.join(__dirname, "imagenes/1.jpg");
       const media = MessageMedia.fromFilePath(imagePath);
@@ -297,8 +297,6 @@ io.on("connection", (socket) => {
     });
     // Asegúrate de que la función donde usas 'await' sea async
     client.on("message", async (message) => {
-      console.log(message);
-
       // Crear una expresión regular para varias palabras relacionadas con fotos
       const fotosKeywords =
         /(fotos|foto|fotografias|fotitos|fotito|imagenes de referencia|imagenes|images|pics)/i;
