@@ -16,7 +16,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: "*",
+    origin: "http://localhost:3000",
     methods: ["GET", "POST"],
   },
 });
@@ -179,8 +179,7 @@ app.post("/verify-token", (req, res) => {
   try {
     // Verificar el token utilizando JWT
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log("decoded");
-    console.log(decoded);
+
     return res.json({ valid: true });
   } catch (err) {
     console.error("Token inválido o expirado:", err);
@@ -219,9 +218,9 @@ const queryDatabaseForUser = async (email, password) => {
 // Socket.IO
 io.on("connection", (socket) => {
   console.log("Cliente conectado desde el frontend");
-  socket.emit("connected", "Conectado al backend");
+  socket.emit("connected", "Conectado");
 
-  socket.on("reconnect-client", (clientId) => {
+  socket.on("reconnect-client", async (clientId) => {
     if (clients[clientId]) {
       console.log(`Reutilizando cliente existente para ${clientId}`);
       socket.emit("ready", { clientId, message: "Cliente ya está listo" });
@@ -229,135 +228,146 @@ io.on("connection", (socket) => {
       console.log(
         `No se encontró cliente para ${clientId}, generando nuevo QR.`
       );
+      // console.log("logout");
+      // console.log(clients);
+      // console.log(clients[clientId]);
       socket.emit("disconnected", { clientId });
     }
   });
 
   socket.on("request-qr", async (clientId) => {
-    console.log("request-qr");
+    console.log(`Generando cliente para clientId: ${clientId}`);
+
     if (clients[clientId]) {
-      console.log("ya hay un cliente inicializado");
-    } else {
-      const client = new Client({
-        authStrategy: new LocalAuth({ clientId }), // Usar LocalAuth con clientId
+      console.log("Cliente ya existe, destruyendo cliente anterior");
+      await clients[clientId].logout();
+      await clients[clientId].destroy();
+      delete clients[clientId];
+    }
+
+    // Crear un nuevo cliente
+    const client = new Client({
+      authStrategy: new LocalAuth({ clientId }),
+    });
+
+    // Guardar el cliente en el objeto de clientes
+    clients[clientId] = client;
+    client.on("authenticated", () => {
+      console.log(`Cliente ${clientId} está autenticado.`);
+      // Emitimos un evento al frontend indicando que el cliente se está conectando
+      socket.emit("connecting", {
+        clientId,
+        message: "Cliente está autenticado, conectando...",
       });
-      client.on("authenticated", () => {
-        console.log(`Cliente ${clientId} está autenticado.`);
-        // Emitimos un evento al frontend indicando que el cliente se está conectando
-        socket.emit("connecting", {
-          clientId,
-          message: "Cliente está autenticado, conectando...",
+    });
+
+    client.on("qr", (qr) => {
+      console.log(`QR para ${clientId} generado.`);
+      qrcode.toDataURL(qr, (err, url) => {
+        if (err) {
+          console.error("Error generando el código QR", err);
+          return;
+        }
+        socket.emit("qr", { clientId, url }); // Emitimos el QR con el clientId
+      });
+    });
+
+    client.on("ready", async () => {
+      console.log(`Cliente ${clientId} está listos.`);
+
+      let fecha = dayjs().format("YYYY-MM-DD HH:mm:ss");
+      // Almacenar la nueva sesión activa en la base de datos a través del servidor PHP
+      let data = qs.stringify({
+        funcion: "add_session",
+        cliente_id: clientId,
+        last_connected: fecha,
+      });
+      let config = {
+        method: "post",
+        maxBodyLength: Infinity,
+        url: apiUrl,
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        data: data,
+      };
+      socket.emit("ready", { clientId, message: "Cliente ya está listo" });
+      const response = await axios.request(config);
+      console.log(response.data);
+    });
+    // Asegúrate de que la función donde usas 'await' sea async
+    client.on("message", async (message) => {
+      console.log(message);
+
+      // Crear una expresión regular para varias palabras relacionadas con fotos
+      const fotosKeywords =
+        /(fotos|foto|fotografias|fotitos|fotito|imagenes de referencia|imagenes|images|pics)/i;
+
+      // Comprobar si el mensaje contiene alguna de las palabras clave
+      if (fotosKeywords.test(message.body)) {
+        const imagesDir = path.join(__dirname, "imagenes");
+
+        fs.readdir(imagesDir, (err, files) => {
+          if (err) {
+            console.error("Error leyendo la carpeta de imágenes", err);
+            return;
+          }
+
+          // Enviar cada archivo de imagen en la carpeta
+          files.forEach((file) => {
+            const filePath = path.join(imagesDir, file);
+            const media = MessageMedia.fromFilePath(filePath);
+            client.sendMessage(message.from, media);
+          });
         });
-      });
+      }
+    });
 
-      client.on("qr", (qr) => {
-        if (clients[clientId]) {
-          console.log("existe aun ...");
-        } else {
-          console.log(`QR para ${clientId} generado.`);
-          qrcode.toDataURL(qr, (err, url) => {
-            if (err) {
-              console.error("Error generando el código QR", err);
-              return;
-            }
-            socket.emit("qr", { clientId, url }); // Emitimos el QR con el clientId
-          });
-        }
-      });
+    client.on("disconnected", async (reason) => {
+      if (reason == "NAVIGATION" || reason == "LOGOUT") {
+        await client.logout();
+        // const folderPath = path.join(
+        //   __dirname,
+        //   `../../../.wwebjs_auth/session-${clientId}`
+        // );
+        // fs.rm(folderPath, { recursive: true, force: true }, (err) => {
+        //   if (err) {
+        //     console.log(`Error deleting folder: ${err.message}`);
+        //   } else {
+        //     console.log("Folder deleted successfully");
+        //   }
+        // });
+        let data = qs.stringify({
+          funcion: "desconectar_session",
+          cliente_id: clientId,
+        });
+        let config = {
+          method: "post",
+          maxBodyLength: Infinity,
+          url: apiUrl,
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          data: data,
+        };
+        const response = await axios.request(config);
+        // await client.logout();
+        delete clients[clientId];
+        console.log(response.data);
 
-      client.on("ready", async () => {
-        if (clients[clientId]) {
-          console.log("ya existe y no se puede inicializar de nuevo");
-        } else {
-          console.log(`Cliente ${clientId} está listos.`);
+        socket.emit("disconnected", { clientId });
+      }
+    });
 
-          clients[clientId] = client; // Guardar el cliente en memoria
-          let fecha = dayjs().format("YYYY-MM-DD HH:mm:ss");
-          // Almacenar la nueva sesión activa en la base de datos a través del servidor PHP
-          let data = qs.stringify({
-            funcion: "add_session",
-            cliente_id: clientId,
-            last_connected: fecha,
-          });
-          let config = {
-            method: "post",
-            maxBodyLength: Infinity,
-            url: apiUrl,
-            headers: {
-              "Content-Type": "application/x-www-form-urlencoded",
-            },
-            data: data,
-          };
-          socket.emit("ready", { clientId, message: "Cliente ya está listo" });
-          const response = await axios.request(config);
-          console.log(response.data);
-        }
-      });
-      // Asegúrate de que la función donde usas 'await' sea async
-      client.on("message", async (message) => {
-        console.log(message);
-
-        // Crear una expresión regular para varias palabras relacionadas con fotos
-        const fotosKeywords =
-          /(fotos|foto|fotografias|fotitos|fotito|imagenes de referencia|imagenes|images|pics)/i;
-
-        // Comprobar si el mensaje contiene alguna de las palabras clave
-        if (fotosKeywords.test(message.body)) {
-          const imagesDir = path.join(__dirname, "imagenes");
-
-          fs.readdir(imagesDir, (err, files) => {
-            if (err) {
-              console.error("Error leyendo la carpeta de imágenes", err);
-              return;
-            }
-
-            // Enviar cada archivo de imagen en la carpeta
-            files.forEach((file) => {
-              const filePath = path.join(imagesDir, file);
-              const media = MessageMedia.fromFilePath(filePath);
-              client.sendMessage(message.from, media);
-            });
-          });
-        }
-      });
-
-      client.on("disconnected", async (reason) => {
-        await client.destroy();
-        if (reason == "NAVIGATION" || reason == "LOGOUT") {
-          const folderPath = path.join(
-            __dirname,
-            `../../../.wwebjs_auth/session-${clientId}`
-          );
-          fs.rm(folderPath, { recursive: true, force: true }, (err) => {
-            if (err) {
-              console.log(`Error deleting folder: ${err.message}`);
-            } else {
-              console.log("Folder deleted successfully");
-            }
-          });
-          let data = qs.stringify({
-            funcion: "desconectar_session",
-            cliente_id: clientId,
-          });
-          let config = {
-            method: "post",
-            maxBodyLength: Infinity,
-            url: apiUrl,
-            headers: {
-              "Content-Type": "application/x-www-form-urlencoded",
-            },
-            data: data,
-          };
-          const response = await axios.request(config);
-          // await client.logout();
-          delete clients[clientId];
-          console.log(response.data);
-
-          socket.emit("disconnected", { clientId });
-        }
-      });
-
-      client.initialize();
+    client.initialize();
+  });
+  socket.on("destroy-client", async (clientId) => {
+    if (clients[clientId]) {
+      console.log(`Destruyendo cliente con clientId: ${clientId}`);
+      await clients[clientId].logout(); // Llama al método destroy del cliente
+      await clients[clientId].destroy(); // Llama al método destroy del cliente
+      delete clients[clientId]; // Elimina el cliente del objeto
+      socket.emit("disconnected", { clientId });
     }
   });
   // Nueva función para desconectar al cliente desde el frontend
